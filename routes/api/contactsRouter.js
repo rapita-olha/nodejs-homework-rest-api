@@ -1,6 +1,8 @@
 const { Router } = require("express");
 const router = Router();
 
+const { authenticate } = require("../../srs/middlewares");
+
 const {
   getContactsController,
   getContactByIdController,
@@ -10,16 +12,16 @@ const {
   deleteContactController,
 } = require("../../srs/controllers/contactsController");
 
-router.get("/", getContactsController);
+router.get("/", authenticate, getContactsController);
 
-router.get("/:contactId", getContactByIdController);
+router.get("/:contactId", authenticate, getContactByIdController);
 
-router.post("/", addContactController);
+router.post("/", authenticate, addContactController);
 
-router.put("/:contactId", changeContactController);
+router.put("/:contactId", authenticate, changeContactController);
 
-router.patch("/:contactId/favorite", patchContactController);
+router.patch("/:contactId/favorite", authenticate, patchContactController);
 
-router.delete("/:contactId", deleteContactController);
+router.delete("/:contactId", authenticate, deleteContactController);
 
 module.exports = { contactsRouter: router };
