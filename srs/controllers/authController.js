@@ -1,17 +1,19 @@
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const path = require("path");
 const fs = require("fs/promises");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 const gravatar = require("gravatar");
 const Jimp = require("jimp");
-const { BadRequest, Conflict, Unauthorized } = require("http-errors");
+const { nanoid } = require("nanoid");
+const { BadRequest, Conflict, Unauthorized, NotFound } = require("http-errors");
 
 const { joiSignupSchema, joiLoginSchema } = require("../models/userModel");
 const { User } = require("../models");
+const { sendEmail } = require("../helpers");
 
 const avatarsDir = path.join(__dirname, "../../", "public", "avatars");
 
-const { SECRET_KEY } = process.env;
+const { SITE_NAME, SECRET_KEY } = process.env;
 
 const signupController = async (req, res, next) => {
   try {
@@ -31,20 +33,29 @@ const signupController = async (req, res, next) => {
 
     const salt = await bcrypt.genSalt(10);
     const hashPassword = await bcrypt.hash(password, salt);
+    const verificationToken = nanoid();
     const avatarURL = gravatar.url(email);
     const newUser = await User.create({
       name,
       email,
+      verificationToken,
       password: hashPassword,
       avatarURL,
       subscription,
     });
 
+    const data = {
+      to: email,
+      subject: "Email confirmation",
+      html: `<a target="_blank"
+  href="${SITE_NAME}/api/auth/users/verify/${verificationToken}">Confirm email</a>`,
+    };
+    await sendEmail(data);
+
     res.status(201).json({
       user: {
         name: newUser.name,
         email: newUser.email,
-        // password: newUser.password,
         subscription: newUser.subscription,
       },
     });
@@ -70,7 +81,6 @@ const loginController = async (req, res, next) => {
     }
 
     const passwordCompare = await bcrypt.compare(password, user.password);
-    // const passwordCompare = user.comparePassword(password);
 
     if (!passwordCompare) {
       throw new Unauthorized("Email or password is wrong");
@@ -136,10 +146,67 @@ const updateAvatar = async (req, res, next) => {
   }
 };
 
+const emailVerification = async (req, res, next) => {
+  try {
+    const { verificationToken } = req.params;
+    const user = await User.findOne({ verificationToken });
+
+    if (!user) {
+      throw new NotFound("User not found");
+    }
+
+    await User.findByIdAndUpdate(user._id, {
+      verificationToken: null,
+      verify: true,
+    });
+
+    res.json({
+      message: "Verification successful",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const emailReVerification = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      throw new BadRequest("Missing required field email");
+    }
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      throw new NotFound("User not found");
+    }
+
+    if (user.verify) {
+      throw new BadRequest("Verification has already been passed");
+    }
+
+    const { verificationToken } = user;
+    const data = {
+      to: email,
+      subject: "Email confirmation",
+      html: `<a target="_blank"
+  href="${SITE_NAME}/api/auth/users/verify/${verificationToken}">Confirm email</a>`,
+    };
+    await sendEmail(data);
+
+    res.json({ message: "Verification email sent" });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   signupController,
   loginController,
   logoutController,
   currentController,
   updateAvatar,
+  emailVerification,
+  emailReVerification,
 };
